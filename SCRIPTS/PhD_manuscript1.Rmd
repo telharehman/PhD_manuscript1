@@ -1,14 +1,33 @@
 ---
 title: 'Using Normalized Difference Vegetation Index to assess
-  midseason N status and predict grain yield in rice. '
+  N status and predict grain yield in rice.'
 author: 
 output:
   pdf_document: default
   html_document: default
 ---
 
+###These are the packages needed for the analysis
+```{r , echo=FALSE}
+
+library(knitr)
+library(ggplot2)
+library(tidyverse)
+library(ggpmisc)
+library(gridExtra)
+library(nlme)
+library(car)
+library(piecewiseSEM)
+library(segmented)
+library(raster)
+library(Cairo)
+
+```
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+opts_knit$set(root.dir = "~/Desktop/Ph.D. Horticulture and Agronomy/PhD_manuscript1/PhD_manuscript1")
 ```
 
 ## R Markdown
@@ -21,21 +40,6 @@ When you click the **Knit** button a document will be generated that includes bo
 Sys.time()
 ```
 
-###These are the packages needed for the analysis
-```{r}
-
-library(knitr)
-library(ggplot2)
-library(tidyverse)
-library(ggpmisc)
-library(gridExtra)
-library(nlme)
-library(car)
-library(piecewiseSEM)
-library(segmented)
-library(raster)
-
-```
 #GREENSEEKER CONVERSION
 
 ###Getting the linear regression conversion from GreenSeeker_1 to GreenSeeker_2
@@ -46,35 +50,30 @@ library(raster)
 
 ```{r}
 
-greenseek_data <- read_csv(file = "greenseeker_comparison.csv")
-str(greenseek_data)  
+GS_data <- read_csv(file = "DATA/greenseeker_comparison.csv")
+str(GS_data)  
 
-head(greenseek_data)
-tail(greenseek_data)
+GS_data <- GS_data %>% 
+  rowwise() %>% 
+  mutate(GreenSeeker_1 = mean(c(Greenseeker1_NDVI1 , Greenseeker1_NDVI2)),
+         GreenSeeker_2 = mean(c(Greenseeker2_NDVI1 , Greenseeker2_NDVI2))) #takes the mean of GreenSeeker readings
 
-greenseek_data$Greenseeker1 <- (greenseek_data$Greenseeker1_NDVI1 + greenseek_data$Greenseeker1_NDVI2) / 2 #takes average of two readings with Greenseeker1's greenseeker
-greenseek_data$Greenseeker2 <- (greenseek_data$Greenseeker2_NDVI1 + greenseek_data$Greenseeker2_NDVI2) / 2 #takes average of two readings with Greenseeker2's greenseeker
-str(greenseek_data)
+greenmod1 <- lm(GreenSeeker_2 ~ GreenSeeker_1 , data = GS_data) #creates a linear regression of GreenSeeker_2 ~ GreenSeeker_1 greenseeker data
 
-head(greenseek_data)
-tail(greenseek_data)
-
-greenmod1 <- lm(Greenseeker2 ~ Greenseeker1 , data = greenseek_data) #creates a linear regression of Greenseeker2 ~ Greenseeker1 greenseeker data
-
-summary(greenmod1) #the resulting equation is Greenseeker2 = -0.02703 + 0.98950 * Greenseeker1 
+summary(greenmod1) #the resulting equation is GreenSeeker_2 = -0.02703 + 0.98950 * GreenSeeker_1 
 
 label_eqn <- paste("y == 0.9895 * x - 0.02703")
 label_r2 <- paste("r^2 == 0.77")
 
-greenplot <- ggplot(data = greenseek_data, aes(x = GreenSeeker_1 , y = GreenSeeker_2 )) +
-  geom_point(mapping = aes(Greenseeker1, Greenseeker2) , data = greenseek_data) +
-  geom_smooth( data = greenseek_data , aes(x = Greenseeker1 , y = Greenseeker2 ) , method = lm, formula = y ~ x) +
+greenplot <- ggplot(data = GS_data, aes(x = GreenSeeker_1 , y = GreenSeeker_2 )) +
+  geom_point(mapping = aes(GreenSeeker_1, GreenSeeker_2) , data = GS_data) +
+  geom_smooth( data = GS_data , aes(x = GreenSeeker_1 , y = GreenSeeker_2 ) , method = lm, formula = y ~ x) +
   annotate("text" , x = 0.78 , y = 0.65 , label = label_eqn , parse = TRUE) +
   annotate("text" , x = 0.78 , y = 0.64 , label = label_r2 , parse = TRUE ) #generates a plot of the data with the model overlayed on the data
 
 greenplot
 
-ggsave("Figure_S1.tiff" , greenplot , device = "tiff" )
+ggsave("FIGURES/FigureS1.tiff" , greenplot , compression = "lzw" , type = "cairo")
 
 ```
 
@@ -86,35 +85,32 @@ ggsave("Figure_S1.tiff" , greenplot , device = "tiff" )
 
 ```{r}
 
-ntrial_data <- read_csv("N_trial_data.csv")
+ntrial_data <- read_csv(file = "DATA/N_trial_data.csv")
 
-ntrial_data <- ntrial_data[c(1:231), c(1:16)] #removes the extra rows and columns from the data frame
+ntrial_data <- ntrial_data[c(1:231), c(1:15)] #removes the empty rows and columns from the data frame
 
-ntrial_data$block <- factor(ntrial_data$block) #changes block to a factor
-ntrial_data$plot <- factor(ntrial_data$plot) #changes plot to a factor
+ntrial_data$block <- factor(ntrial_data$block) 
+ntrial_data$plot <- factor(ntrial_data$plot) 
 ntrial_data$plot_id <- factor(ntrial_data$plot_id)
 ntrial_data$N_level <- factor(ntrial_data$N_level)
 ntrial_data$exp_plot_number <- factor(ntrial_data$exp_plot_number)
-ntrial_data$site_year <- factor(ntrial_data$site_year , levels = c("Arbuckle-15" , "RES-15" , "RES-16" , "Davis-16" , "Nicolaus-17" , "Williams-17","Arbuckle-18" , "Biggs-18" , "Marysville-18" , "Nicolaus-18" )) #changes site-year to a factor
+ntrial_data$site_year <- factor(ntrial_data$site_year , levels = c("Arbuckle-15" , "RES-15" , "RES-16" , "Davis-16" , "Nicolaus-17" , "Williams-17","Arbuckle-18" , "Biggs-18" , "Marysville-18" , "Nicolaus-18" ))
 ntrial_data$NDVI_1 <- as.numeric(as.character(ntrial_data$NDVI_1))
 ntrial_data$NDVI_2 <- as.numeric(as.character(ntrial_data$NDVI_2))
 ntrial_data$NDVI_3 <- as.numeric(as.character(ntrial_data$NDVI_3))
-ntrial_data$NDVI_4 <- as.numeric(as.character(ntrial_data$NDVI_4))
+ntrial_data$NDVI_4 <- as.numeric(as.character(ntrial_data$NDVI_4)) #gets the data right
 
 str(ntrial_data)
 
 ntrial_data <-  ntrial_data %>% 
   mutate( biomass_dry_wt = biomass_plus_bag_g - (paper_bag_g * num_of_paper_bags) ,
-          aboveground_biomass = (biomass_dry_wt / ring_size_m2) / 1000 ,
+          aboveground_biomass = (biomass_dry_wt / 0.50) / 1000 , #ring size 0.5 m^2
           n_content = sample_N_ug / sample_weight_mg ,
           N_Uptake = aboveground_biomass * n_content) #processes the data
 
 ntrial_data <- ntrial_data %>% 
   rowwise() %>% 
   mutate(NDVI = mean(c( NDVI_1 , NDVI_2 , NDVI_3 , NDVI_4) , na.rm = T)) #takes average of four NDVI readings
-
-#Greenseeker2 = -0.02703 + 0.98950 * Greenseeker1 Now to normailize the data for the two greenseekers based on the equation we  found earlier
-
 
 ntrial_data <- ntrial_data %>%
   mutate(NDVI = case_when(site_year == "Arbuckle-15" ~ -0.02703 + 0.98950*NDVI,
@@ -126,7 +122,7 @@ ntrial_data <- ntrial_data %>%
                           site_year == "Nicolaus-18" ~ NDVI,
                           site_year == "Arbuckle-18" ~ NDVI,
                           site_year == "Marysville-18" ~ NDVI,
-                          site_year == "Biggs-18" ~ NDVI))
+                          site_year == "Biggs-18" ~ NDVI)) #normailizes the data for the two greenseekers based on the equation we found earlier
 
 ntrial_data <- dplyr::select(ntrial_data ,
                       site_year,
@@ -137,39 +133,39 @@ ntrial_data <- dplyr::select(ntrial_data ,
                     aboveground_biomass,
                     n_content,
                     N_Uptake,
-                    NDVI) #this takes just the columns were interested in into the next phase of the analysis.
+                    NDVI) #selects the relevant columns
 
-ntrial_data$site_year <- factor(ntrial_data$site_year , levels = c("Arbuckle-15" , "RES-15" , "Davis-16" , "RES-16" , "Nicolaus-17" , "Williams-17" , "Arbuckle-18" , "Biggs-18", "Marysville-18" , "Nicolaus-18")) #orders site-years by year in alphabetical order
+ntrial_data$site_year <- factor(ntrial_data$site_year , levels = c("Arbuckle-15" , "RES-15" , "Davis-16" , "RES-16" , "Nicolaus-17" , "Williams-17" , "Arbuckle-18" , "Biggs-18", "Marysville-18" , "Nicolaus-18")) #orders site-years alphabetically
 
 ```
 
 ###Farm Survey NDVI Data
 ```{r}
 
-farmsurvey_data <- read_csv("farm_survey_data.csv")
+farmsurvey_data <- read_csv(file = "DATA/farm_survey_data.csv")
 
-farmsurvey_data <- farmsurvey_data[c(1:58), c(1:16)] #removes the extra rows and columns from the data frame
+farmsurvey_data <- farmsurvey_data[c(1:58), c(1:15)] #removes the extra rows and columns from the data frame
 
-farmsurvey_data$block <- factor(farmsurvey_data$block) #changes block to a factor
-farmsurvey_data$plot <- factor(farmsurvey_data$plot) #changes plot to a factor
+farmsurvey_data$block <- factor(farmsurvey_data$block) 
+farmsurvey_data$plot <- factor(farmsurvey_data$plot)
 farmsurvey_data$plot_id <- factor(farmsurvey_data$plot_id)
 farmsurvey_data$N_level <- factor(farmsurvey_data$N_level)
 farmsurvey_data$exp_plot_number <- factor(farmsurvey_data$exp_plot_number)
-farmsurvey_data$site_year <- factor(farmsurvey_data$site_year) #changes site-year to a factor
+farmsurvey_data$site_year <- factor(farmsurvey_data$site_year)
 farmsurvey_data$NDVI_1 <- as.numeric(as.character(farmsurvey_data$NDVI_1))
 farmsurvey_data$NDVI_2 <- as.numeric(as.character(farmsurvey_data$NDVI_2))
 farmsurvey_data$NDVI_3 <- as.numeric(as.character(farmsurvey_data$NDVI_3))
-farmsurvey_data$NDVI_4 <- as.numeric(as.character(farmsurvey_data$NDVI_4))
+farmsurvey_data$NDVI_4 <- as.numeric(as.character(farmsurvey_data$NDVI_4)) #gets the data right
 
 str(farmsurvey_data)
 
 farmsurvey_data <- farmsurvey_data %>% 
   filter(plot == "a" | plot == "b") %>% 
   group_by(exp_plot_number) %>% 
-  summarize(biomass_plus_bag_g = mean(biomass_plus_bag_g) , sample_weight_mg = mean(sample_weight_mg) , sample_N_ug = mean(sample_N_ug) , NDVI_1 = mean(NDVI_1)) #takes the mean of rep A and B for each plot for only the relevant rows
+  summarize(biomass_plus_bag_g = mean(biomass_plus_bag_g) , sample_weight_mg = mean(sample_weight_mg) , sample_N_ug = mean(sample_N_ug) , NDVI_1 = mean(NDVI_1)) #takes mean of reps A and B for the relevant columns
 
 farmsurvey_data <- farmsurvey_data %>% 
-  mutate(site_year = factor("Farm Survey-15") , block = factor("41") , plot = factor("ab") , plot_id = row_number() , N_level = factor("175") , paper_bag_g = 45.0 , num_of_paper_bags = 1.0 , ring_size_m2 = 0.50 , NDVI_2 = NA , NDVI_3 = NA , NDVI_4 = NA)
+  mutate(site_year = factor("Farm Survey-15") , block = factor("41") , plot = factor("ab") , plot_id = row_number() , N_level = factor("175") , paper_bag_g = 45.0 , num_of_paper_bags = 1.0 , NDVI_2 = NA , NDVI_3 = NA , NDVI_4 = NA)
   
 farmsurvey_data <- dplyr::select(farmsurvey_data,
                                  site_year , 
@@ -180,26 +176,27 @@ farmsurvey_data <- dplyr::select(farmsurvey_data,
                                  biomass_plus_bag_g , 
                                  paper_bag_g , 
                                  num_of_paper_bags , 
-                                 ring_size_m2 , 
                                  sample_weight_mg , 
                                  sample_N_ug , 
                                  NDVI_1 , 
                                  NDVI_2 , 
                                  NDVI_3 , 
-                                 NDVI_4)#populates the remaining columns so the df matches exactly with ntrail_data
+                                 NDVI_4)#makes df identical to n_trial_data
 
 farmsurvey_data <-  farmsurvey_data %>% 
   mutate( biomass_dry_wt = biomass_plus_bag_g - (paper_bag_g * num_of_paper_bags) ,
-          aboveground_biomass = (biomass_dry_wt / ring_size_m2) / 1000 ,
+          aboveground_biomass = (biomass_dry_wt / 0.50) / 1000 , #ring size 0.50 m^2
           n_content = sample_N_ug / sample_weight_mg ,
           N_Uptake = aboveground_biomass * n_content) #processes the data
 
 farmsurvey_data <- farmsurvey_data %>% 
   rowwise() %>% 
-  mutate(NDVI = mean(c( NDVI_1 , NDVI_2 , NDVI_3 , NDVI_4) , na.rm = T)) #takes average of four NDVI readings
+  mutate(NDVI = mean(c( NDVI_1 , NDVI_2 , NDVI_3 , NDVI_4) , na.rm = T)) #mean NDVI
+
+farmsurvey_data <-farmsurvey_data[1:28 , ] #removes outlier
 
 farmsurvey_data <- farmsurvey_data %>%
-  mutate(NDVI = -0.02703 + 0.98950*NDVI)
+  mutate(NDVI = -0.02703 + 0.98950*NDVI) #adjusts NDVI readings using eqn from above
   
 farmsurvey_data <- dplyr::select(farmsurvey_data ,
                       site_year,
@@ -210,15 +207,15 @@ farmsurvey_data <- dplyr::select(farmsurvey_data ,
                     aboveground_biomass,
                     n_content,
                     N_Uptake,
-                    NDVI) #this takes just the columns were interested in into the next phase of the analysis.
+                    NDVI) #selects relevant columns
+
 
 ```
 
 ###NDVI Data
 
-###Merging the two dataframes 
 ```{r}
-ndvi_data <- bind_rows(list(ntrial_data, farmsurvey_data))
+ndvi_data <- bind_rows(list(ntrial_data, farmsurvey_data)) #binds both df
   
 ndvi_data <- tibble::rowid_to_column(ndvi_data, "plot_id")
 
@@ -233,8 +230,6 @@ ndvi_data <- dplyr::select (ndvi_data,
                            n_content,
                            N_Uptake,
                            NDVI)
-                          
-ndvi_data <- ndvi_data[c(1:259), ] #I perceive observation #260 to be an outlier. From previous experience of working with this dataset, I know #260 has a significant effect on the analysis. It doesn't change any outcomes, but in the case of the aboveground biomass model, it results in the model extending much further in the x direction than neccessary. Given that this observation does not impair the analysis per se, but does impair the aesthetic quality of the resulting plot, I am removing this observation. 
 
 ndvi_data$block <- factor(ndvi_data$block) #changes block to a factor
 ndvi_data$plot <- factor(ndvi_data$plot) #changes plot to a factor
@@ -277,256 +272,103 @@ summary(ndvi_data)
 
 ##MODELS
 
-###Aboveground Biomass Model
+###Aboveground Biomass
 
 ```{r}
-
-#lets just plot the data to see what it looks like
 
 ggplot(data = ndvi_data, aes(x = aboveground_biomass , y = NDVI)) +
-                    geom_point(mapping = aes(aboveground_biomass, NDVI), data = ndvi_data)
-```
-
-```{r}
-#nonlinear mixed effects model
-
-gpndvi_data_ab <- groupedData(NDVI ~ aboveground_biomass | site_year, ndvi_data) #makes the ndvi data grouped data
-
-fm1abv.lis <- nlsList(NDVI ~ SSasympOrig(aboveground_biomass , Asym , lrc) | site_year, 
-                      data = gpndvi_data_ab)
-
-
-summary(fm1abv.lis)
-plot(fm1abv.lis)
-
-fm1abv.nlme <- nlme(fm1abv.lis) #makes the nlme model from the nlme_lis
-
-
-summary(fm1abv.nlme)
-anova(fm1abv.nlme)
-plot(fm1abv.nlme)
-plot(resid(fm1abv.nlme, type = "normalized") ~fitted(fm1abv.nlme)) #not the best, but the data itself is hard to model, so I consider this acceptable
-plot(fm1abv.nlme, site_year ~ resid(.), abline = 0) # generally consistent across site-years
-qqnorm(fm1abv.nlme, abline = c(0,1) )
-qqnorm(fm1abv.nlme , ~resid(.) | site_year)
-qqnorm(fm1abv.nlme , ~ranef(.))
-pairs(fm1abv.nlme, ~ranef(.) , id = 0.1)
-plot(ranef(fm1abv.nlme))  #random effects highly correlated.
-plot( fm1abv.nlme, resid(., type = "p") ~ fitted(.) | site_year,
-      id = 0.05, adj = -0.3 )
-qqnorm(fm1abv.nlme, ~ranef(.) , id = 0.10 , cex = 0.7 )
-summary(fm1abv.nlme)
-errors<- resid(fm1abv.nlme)
-shapiro.test(errors) #not normal, but i doubt this relationship would have normal residuals
-plot(fm1abv.nlme , NDVI ~ fitted(.) , id = 0.05 , adj = -0.3 , abline = c(0,1))
-pairs(fm1abv.nlme , ~ranef(.) | site_year)
-
-fm2abv.nlme <- update(fm1abv.nlme, random = Asym ~1 ) #remove lrc random effect
-
-summary(fm2abv.nlme)
-
-anova(fm2abv.nlme, fm1abv.nlme) #model 1 is better 
-
-fm3abv.nlme <- update(fm1abv.nlme, random = lrc ~1 ) #remove Asym random effect
-
-anova(fm1abv.nlme , fm3abv.nlme) #comparing models 1 and 3, model 1 has slightly lower AIC, but model 3 drops an extra random effect. the lrc and Asym random effect are highly correlated, therefore I believe model 3 is better. 
-
-#checking the model residuals
-
-#fm3abv.nlme <- update(fm3abv.nlme, weights = varIdent(form = ~ 1| site_year))
-
-anova(fm1abv.nlme , fm3abv.nlme)
-
-plot(resid(fm3abv.nlme, type = "normalized") ~fitted(fm3abv.nlme)) #not the best, but the data itself is hard to model, so I consider this acceptable
-plot(fm3abv.nlme, site_year ~ resid(.), abline = 0) # generally consistent across site-years
-qqnorm(fm3abv.nlme, abline = c(0,1) ) #looks good
-qqnorm(fm3abv.nlme , ~resid(.) | site_year) #looks good
-qqnorm(fm3abv.nlme , ~ranef(.))
-plot(ranef(fm3abv.nlme))
-plot( fm3abv.nlme, resid(., type = "p") ~ fitted(.) | site_year,
-      id = 0.05, adj = -0.3 )
-qqnorm(fm3abv.nlme, ~ranef(.) , id = 0.10 , cex = 0.7 )
-summary(fm3abv.nlme)
-errors<- resid(fm3abv.nlme)
-shapiro.test(errors) #not normal, but i doubt this relationship would have normal residuals
-compNup <- compareFits( coef(fm3abv.nlme) , coef(fm1abv.nlme))
-plot(compNup , mark = fixef(fm3abv.nlme))
-plot(comparePred(fm3abv.nlme , fm1abv.nlme, length.out = 2) , between = list(y = c(0, 0.5)) )
-plot(fm3abv.nlme , NDVI ~ fitted(.) , id = 0.05 , adj = -0.3 , abline = c(0,1))
-plot(augPred(fm1abv.nlme), level = 1)
-abv.comp <- plot(augPred(fm3abv.nlme), level = 1)
-abv.comp
-
-#fm3abv.nlme is the model I will select
-
-summary(fm3abv.nlme)
-intervals(fm3abv.nlme)
-
-tiff("Figure_S2.tiff")
-plot(abv.comp)
-dev.off()
-
-#getting the fitted values
-
-fitabv <- fitted(fm3abv.nlme, level = 0)
-fit.modabv <- data.frame(ndvi_data$aboveground_biomass , fitabv)
-
-mse.fm3abv.nlme <- mean(residuals(fm3abv.nlme)^2)
-mse.fm3abv.nlme
-rmse.fm3abv.nlme <- sqrt(mse.fm3abv.nlme)
-rmse.fm3abv.nlme
+                    geom_point(mapping = aes(aboveground_biomass, NDVI), data = ndvi_data) #visualizes the data
 
 ```
 
-###N Concentration Model
-
 ```{r}
 
-#just visualize the data
+aboveground_biomass2 <- ndvi_data$aboveground_biomass^2
+abv.quad <- lm(NDVI ~ aboveground_biomass + aboveground_biomass2 , ndvi_data)
+summary(abv.quad)
+par(mfrow = c(2, 2))
+plot(abv.quad) #residuals are acceptable
+abv.quad.fit <- fitted(abv.quad)
+abv.quad.df <- data.frame(ndvi_data$aboveground_biomass, abv.quad.fit)
+
+abv_r2 <- summary(abv.quad)$adj.r.squared
+abv_a <- as.numeric(as.character(coef(abv.quad)[3]))
+abv_b <- as.numeric(as.character(coef(abv.quad)[2]))
+abv_c <- as.numeric(as.character(coef(abv.quad)[1]))
+abvsym_x <- (-abv_b) / (2*abv_a)
+abvsym_y <- abv_a*(abvsym_x^2) + abv_b*abvsym_x + abv_c
+
+abveqn <- paste("y == -0.92x^2 + 1.4x + 0.24")
+
+abv_r2
+abvsym_y
+
+```
+
+###N Concentration
+
+```{r}
 
 ggplot(data = ndvi_data, aes(x= n_content , y= NDVI)) +
-         geom_point(mapping = aes(n_content, NDVI) , data = ndvi_data)
+         geom_point(mapping = aes(n_content, NDVI) , data = ndvi_data) #visualizes the data
 
 ```
 
 ```{r}
 
-#nonlinear mixed effects model
+n_content2 <- ndvi_data$n_content^2
+ncon.quad <- lm(NDVI ~ n_content + n_content2, ndvi_data)
+summary(ncon.quad)
+par(mfrow = c(2, 2))
+plot(ncon.quad) #residuals are acceptable
+ncon.quad.fit <- fitted(ncon.quad)
+ncfit.df <- data.frame(ndvi_data$n_content, ncon.quad.fit)
 
-gpndvi_data_nc <- groupedData(NDVI ~ n_content | site_year, ndvi_data)
+ncon_r2 <- summary(ncon.quad)$adj.r.squared
+ncon_a <- as.numeric(as.character(coef(ncon.quad)[3]))
+ncon_b <- as.numeric(as.character(coef(ncon.quad)[2]))
+ncon_c <- as.numeric(as.character(coef(ncon.quad)[1]))
+nconsym_x <- (-ncon_b) / (2*ncon_a)
+nconsym_y <- ncon_a*(nconsym_x^2) + ncon_b*nconsym_x + ncon_c
 
-fm1nc.lis <- nlsList(NDVI ~ SSasympOff(n_content, Asym, lrc , c0) | site_year,
-                     gpndvi_data_nc)  #make the nLs list object
+nconeqn <- paste("y == -0.17 + 0.06*x - 0.001*x^2")
 
-ctrl <- lmeControl(maxIter = 100)
-fm1nc.nlme <- nlme(fm1nc.lis , control = ctrl) #make the nlme
-
-fm2nc.nlme <- update(fm1nc.nlme, weights = varIdent(form = ~ 1| site_year)) #update the variance structure
-
-anova(fm2nc.nlme , fm1nc.nlme) #fm2nc.nlme is better, will stick with it.
-
-plot(resid(fm2nc.nlme, type = "normalized") ~fitted(fm2nc.nlme))
-plot(fm2nc.nlme, site_year ~ resid(.), abline = 0)
-plot(intervals (fm1nc.lis) , layout = c(3,1))
-qqnorm(fm2nc.nlme, abline = c(0,1) )
-qqnorm(fm2nc.nlme , ~resid(.) | site_year)
-qqnorm(fm2nc.nlme , ~ranef(.))
-plot(ranef(fm2nc.nlme))
-plot( fm2nc.nlme, resid(., type = "p") ~ fitted(.) | site_year,
-      id = 0.05, adj = -0.3 )
-qqnorm(fm2nc.nlme, ~ranef(.) , id = 0.10 , cex = 0.7 )
-summary(fm2nc.nlme)
-x<- resid(fm2nc.nlme)
-shapiro.test(x)
-plot(augPred(fm2nc.nlme), level = 1)
-ncon.comp <- plot(augPred(fm2nc.nlme), level = 1)
-
-intervals(fm2nc.nlme)
-summary(fm2nc.nlme)
-
-tiff("Figure_S3.tiff")
-plot(ncon.comp)
-dev.off()
-
-#getting the fitted values
-
-nonlinfittednc <- fitted(fm2nc.nlme, level = 0)
-fitted.modelnc <- data.frame(ndvi_data$n_content , nonlinfittednc)
-
-mse.fm2nc.lme <- mean(residuals(fm2nc.nlme)^2)
-mse.fm2nc.lme
-rmse.fm2nc.lme <- sqrt(mse.fm2nc.lme)
-rmse.fm2nc.lme
-
+ncon_r2
+nconsym_y
 
 ```
 
-###N Uptake Model
+###N Uptake
 
 ```{r}
-
-#nonlinear mixed effects model#
 
 ggplot(data = ndvi_data , aes(x = N_Uptake , y = NDVI)) +
-  geom_point(mapping = aes(N_Uptake , NDVI), data = ndvi_data)
+  geom_point(mapping = aes(N_Uptake , NDVI), data = ndvi_data) #visualizes the data
 
 ```
 
+
 ```{r}
 
-gpndvi_data_nup <- groupedData( NDVI ~ N_Uptake | site_year, ndvi_data) #making the grouped data
+N_Uptake2 <- ndvi_data$N_Uptake^2
+nup.quad <- lm(NDVI ~ N_Uptake + N_Uptake2 , ndvi_data)
+summary(nup.quad)
+par(mfrow = c(2, 2))
+plot(nup.quad) #residuals are acceptable
+nup.quad.fit <- fitted(nup.quad)
+nup.quad.df <- data.frame(ndvi_data$N_Uptake , nup.quad.fit)
 
-fm1nup.lis <- nlsList(NDVI ~ SSasympOrig(N_Uptake, Asym, lrc) | site_year,
-                      gpndvi_data_nup) #makes the nLslist object
+nup_r2 <- summary(nup.quad)$adj.r.squared
+nup_a <- as.numeric(as.character(coef(nup.quad)[3]))
+nup_b <- as.numeric(as.character(coef(nup.quad)[2]))
+nup_c <- as.numeric(as.character(coef(nup.quad)[1]))
+nupsym_x <- (-nup_b) / (2*nup_a)
+nupsym_y <- nup_a*(nupsym_x^2) + nup_b*nupsym_x + nup_c
 
-fm1nup.nlme <- nlme(fm1nup.lis , control = ctrl)
+nupeqn <- paste("y == 0.32 + 0.05*x -0.001*x^2")
 
-summary(fm1nup.lis)
-
-plot(intervals (fm1nup.lis) , layout = c(3,1)) # plots the intervals 
-
-plot(fm1nup.lis, site_year ~ resid(.), abline = 0) #plots the residuals
-
-
-#fm1nup.nlme <- nlme( NDVI ~ SSasympOff(N_Uptake, Asym, lrc, cO),
-                     #data = gpPIdata,
-                     #random = list( Asym + lrc + cO ~ 1 )) does not work
-
-gpndvi_data_nup$newvar <- factor(gpndvi_data_nup$N_Uptake > 10) #with the help of Emilio, makes a new var for differences in variance calculation, not exactly sure, but I think thats what it generally does
-
-
-fm2nup.nlme <- update(fm1nup.nlme, weights = varIdent(form = ~ 1| newvar)) #also with help of Emilio, changes variance structure
-
-anova(fm1nup.nlme , fm2nup.nlme) #compare the models, fm2nup is better
-
-intervals(fm2nup.nlme)
-
-fm3nup.nlme <- update(fm1nup.nlme , random = Asym ~1 )
-
-anova(fm1nup.nlme , fm3nup.nlme) #model 3 not better, will stick with fm2nup.nlme
-
-
-#checking the residuals
-
-plot(resid(fm2nup.nlme, type = "normalized") ~fitted(fm2nup.nlme))
-plot(fm2nup.nlme, site_year ~ resid(.), abline = 0)
-qqnorm(fm2nup.nlme, abline = c(0,1) )
-qqnorm(fm2nup.nlme , ~resid(.) | site_year)
-qqnorm(fm2nup.nlme , ~ranef(.))
-pairs(fm2nup.nlme , id = 0.1)
-plot(ranef(fm2nup.nlme))
-plot( fm2nup.nlme, resid(., type = "p") ~ fitted(.) | site_year,
-      id = 0.05, adj = -0.3 )
-qqnorm(fm2nup.nlme, ~ranef(.) , id = 0.10 , cex = 0.7 )
-summary(fm2nup.nlme)
-errs<- resid(fm2nup.nlme)
-shapiro.test(errs)
-plot(fm2nup.nlme, site_year ~ resid(.), abline = 0)
-compNup <- compareFits( coef(fm1nup.nlme) , coef(fm2nup.nlme))
-compNup
-plot(compNup , mark = fixef(fm2nup.nlme))
-plot(comparePred(fm1nup.nlme , fm2nup.nlme, length.out = 2) , between = list(y = c(0, 0.5)) )
-plot(fm2nup.nlme , NDVI ~ fitted(.) , id = 0.05 , adj = -0.3 , abline = c(0,1))
-pairs(fm2nup.nlme , ~ranef(.) | site_year)
-plot(augPred(fm2nup.nlme), level = 1)
-nup.comp <- plot(augPred(fm2nup.nlme), level = 1)
-
-intervals(fm2nup.nlme)
-summary(fm2nup.nlme)
-
-tiff("Figure_S4.tiff")
-plot(nup.comp)
-dev.off()
-
-#getting the fitted values
-
-nonlinfitted <- fitted(fm2nup.nlme , level = 0)
-fitted.model <- data.frame(ndvi_data$N_Uptake , nonlinfitted)
-mse.fm2nup.lme <- mean(residuals(fm2nup.nlme)^2)
-mse.fm2nup.lme
-rmse.fm2nup.lme <- sqrt(mse.fm2nup.lme)
-rmse.fm2nup.lme
-
+nup_r2
+nupsym_y
 
 ```
 
@@ -550,9 +392,13 @@ a <- ggplot( data = ndvi_data , aes ( x = aboveground_biomass , y = NDVI)) +
   scale_y_continuous(breaks = c(0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80)) +
   scale_x_continuous(breaks = c(0, .2, .4, .6, .8, 1, 1.2, 1.4)) +
   theme(panel.background = element_rect(fill = "white", color = "grey0")) +
-  geom_line(data = fit.modabv, aes( x = ndvi_data$aboveground_biomass , y = fitabv), size = 1.3 , color = "#3366FF") +
-  annotate("text", x = .1, y = 0.85, label = "(A)", color="black", size = 7, parse = TRUE) +
-  annotate("text" , x = .65 , y = 0.1 , label = "AIC == -619.06" , size = 5, parse = TRUE)
+  geom_line(data = abv.quad.df, aes( x = ndvi_data$aboveground_biomass , y = abv.quad.fit), size = 1.3 , color = "#3366FF") +
+  geom_hline( yintercept = abvsym_y , size = 0.7 , color = "black" , lty = 2) +
+  annotate("text" , x = .09, y = 0.85, label = "(A)", color="black", size = 7, parse = TRUE) +
+  annotate("text" , x = .60 , y = 0.08 , label = "y == 0.24 + 1.4*x -0.92*x^2" , size = 5, parse = TRUE) +
+  annotate("text" , x = .60 , y = 0.05 , label = "R^2 == 0.51" , size = 5, parse = TRUE) +
+  annotate("text" , x = .60 , y = 0.01 , label = "asym == 0.77" , size = 5, parse = TRUE)
+  
 
 a
 ```
@@ -575,9 +421,12 @@ b <- ggplot( data = ndvi_data , aes ( x = n_content , y = NDVI)) +
   scale_y_continuous(breaks = c(0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80)) +
   scale_x_continuous(breaks = c(0, 10, 20, 30, 40, 50)) +
   theme(panel.background = element_rect(fill = "white", color = "grey0")) +
-  geom_line(data = fitted.modelnc, aes( x = ndvi_data$n_content , y = nonlinfittednc), size = 1.3 , color = "#3366FF") +
+  geom_line(data = ncfit.df, aes( x = ndvi_data$n_content , y = ncon.quad.fit), size = 1.3 , color = "#3366FF") +
+  geom_hline( yintercept = nconsym_y , size = 0.7 , color = "black" , lty = 2) +
   annotate("text", x = 11, y = 0.85, label = "(B)", color="black", size = 7, parse = TRUE) +
-  annotate("text" , x = 32 , y = 0.1 , label = "AIC == -757.93" , size = 5 , parse = TRUE)
+  annotate("text" , x = 28 , y = 0.08 , label = nconeqn , size = 5 , parse = TRUE) +
+  annotate("text" , x = 28 , y = 0.05 , label = "R^2 == 0.54" , size = 5 ,  parse = TRUE) +
+  annotate("text" , x = 28 , y = 0.01 , label = "asym == 0.76" , size = 5 ,  parse = TRUE)
  
 b
 
@@ -601,9 +450,12 @@ c <- ggplot( data = ndvi_data , aes ( x = N_Uptake , y = NDVI)) +
   scale_y_continuous(breaks = c(0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80)) +
   scale_x_continuous(breaks = c(0, 5, 10, 15, 20, 25, 30)) +
   theme(panel.background = element_rect(fill = "white", color = "grey0")) +
-  geom_line(data = fitted.model, aes( x = ndvi_data$N_Uptake , y = nonlinfitted), size = 1.3 , color = "#3366FF") +
+  geom_line(data = nup.quad.df , aes( x = ndvi_data$N_Uptake , y = nup.quad.fit), size = 1.3 , color = "#3366FF") +
+  geom_hline( yintercept = nupsym_y , size = 0.7 , color = "black" , lty = 2) +
   annotate("text", x = 1.75, y = 0.85, label = "(C)", color="black", size = 7, parse = TRUE) +
-  annotate("text" , x = 20, y = 0.10 , label = "AIC == -936.44" , size = 5 , parse = TRUE)
+  annotate("text" , x = 17 , y = 0.08 , label = nupeqn , size = 5 , parse = TRUE) +
+  annotate("text" , x = 17 , y = 0.05 , label = "R^2 == 0.66" , size = 5 , parse = TRUE) +
+  annotate("text" , x = 17 , y = 0.01 , label = "asym == 0.78" , size = 5  , parse = TRUE)
  
 c
 
@@ -633,233 +485,8 @@ zz <- grid.arrange(arrangeGrob(a,
                               nrow = 1,
                               widths = c(1.3,1.2,1.2,.6)))
 
-ggsave("Figure_2.tiff" , zz,  device = "tiff")
-```
 
-
-#PREDICTED VS OBSERVED
-
-###From the paper -- "Goodness of fit for each model was assessed by comparisons of AIC and by regressing the model predicted values versus the observed data following the method outlined by Piñeiro et al., (2008)." The code below accomplishes this.  
-
-##Aboveground Biomass
-
-###Dataframe
-
-```{r}
-
-pvo_data_abv <- data.frame(gpndvi_data_ab$site_year, gpndvi_data_ab$NDVI , fitabv)
-colnames(pvo_data_abv) <- c("Site_Year" , "Observed_NDVI" , "Predicted_NDVI")
-head(pvo_data_abv)
-tail(pvo_data_abv)
-
-pvo_data_abv$Site_Year <- factor(pvo_data_abv$Site_Year, levels = c("Arbuckle-15" , "Farm Survey-15" , "RES-15"  ,  "Davis-16" , "RES-16", "Nicolaus-17" , "Williams-17",  "Arbuckle-18" ,  "Biggs-18", "Marysville-18" , "Nicolaus-18"))
-
-str(pvo_data_abv)
-
-```
-
-###Model
-
-```{r}
-
-pvo_abv_lm <- lm(Observed_NDVI ~ Predicted_NDVI, data = pvo_data_abv)
-summary(pvo_abv_lm)
-
-```
-
-###Plot
-```{r}
-
-aa <- ggplot(data = pvo_data_abv , aes(x = Predicted_NDVI , y = Observed_NDVI)) +
-  geom_point(mapping = aes(Predicted_NDVI , Observed_NDVI , shape = Site_Year) , data = pvo_data_abv , size = 2) +
-  geom_smooth(method = "lm" , col = "red", se = FALSE , linetype = "dashed" , lwd = 1) +
-  theme_classic() +
-  expand_limits(x = 0 , y = 0) +
-  coord_cartesian(ylim=c(0,0.85) , xlim=c(0,0.85)) +
-  scale_x_continuous(breaks = c(0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80)) +
-  scale_y_continuous(breaks = c(0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80)) +
-  xlab(expression(paste("Predicted NDVI"))) +
-  ylab("Observed Data") +
-  labs(shape = "Site Year") +
- theme(axis.title = element_text(size = 15)) +
-  theme(axis.text = element_text(size = 13)) +
-  theme(legend.text = element_text(size = 11)) +
-  theme(legend.title = element_text(size = 13)) +
-  theme(legend.position = "none") +
-  scale_shape_manual(values = seq(0:10)) +
-  theme(panel.background = element_rect(fill = "white", color = "grey0")) +
-  geom_abline(aes(slope = 1, intercept = 0) , lwd = .5)
-
-aa
-
-label_aa_1 <- paste("(A)")
-label_aa_2 <- paste("AGB")
-label_aa_3 <- paste("y == 0.20 + 0.71 * x ")
-label_aa_4 <- paste("r^2 == 0.52")
-
-aa <- aa + 
-  annotate("text", x = .02, y = 0.85, label = label_aa_1, color="black", size = 7, parse = TRUE) +
-  annotate("text" , x = .16 , y = 0.85 , label = label_aa_2, color="black", size = 7, parse = TRUE) +
-  annotate("text" , x = .65 , y = 0.1 , label = label_aa_3 , color="black", size = 5, parse = TRUE) +
-  annotate("text" , x = .65 , y = 0.07 , label = label_aa_4 , color = "black" , size = 5, parse = TRUE)
-
-aa
-```
-
-##N Concentration
-
-###Dataframe
-
-```{r}
-
-pvo_data_nc <- data.frame(gpndvi_data_nc$site_year, gpndvi_data_nc$NDVI , nonlinfittednc)
-colnames(pvo_data_nc) <- c("Site_Year" , "Observed_NDVI" , "Predicted_NDVI")
-head(pvo_data_nc)
-tail(pvo_data_nc)
-
-pvo_data_nc$Site_Year <- factor(pvo_data_nc$Site_Year, levels =c("Arbuckle-15" , "Farm Survey-15" , "RES-15"  ,  "Davis-16" , "RES-16", "Nicolaus-17" , "Williams-17",  "Arbuckle-18" ,  "Biggs-18", "Marysville-18" , "Nicolaus-18"))
-
-```
-
-###Model
-```{r}
-
-pvo_nc_lm <- lm(Observed_NDVI ~ Predicted_NDVI, data = pvo_data_nc)
-summary(pvo_nc_lm)
-
-```
-
-###Plot
-```{r}
-
-bb <- ggplot(data = pvo_data_nc , aes(x = Predicted_NDVI , y = Observed_NDVI)) +
-  geom_point(mapping = aes(Predicted_NDVI , Observed_NDVI , shape = Site_Year) , data = pvo_data_nc , size = 2) +
-  geom_smooth(method = "lm" , col = "red", se = FALSE , linetype = "dashed" , lwd = 1) +
-  theme_classic() +
-  expand_limits(x = 0 , y = 0) +
-  coord_cartesian(ylim=c(0,0.85) , xlim=c(0,0.85)) +
-  scale_x_continuous(breaks = c(0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80)) +
-  scale_y_continuous(breaks = c(0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80)) +
-  xlab(expression(paste("Predicted NDVI"))) +
-  ylab(NULL) +
-  labs(shape = "Site Year") +
- theme(axis.title = element_text(size = 15)) +
-  theme(axis.text = element_text(size = 13)) +
-  theme(legend.text = element_text(size = 11)) +
-  theme(legend.title = element_text(size = 13)) +
-  theme(legend.position = "none") +
-  scale_shape_manual(values = seq(0:10)) +
-  theme(panel.background = element_rect(fill = "white", color = "grey0")) +
-  geom_abline(aes(slope = 1, intercept = 0) , lwd = .5)
-
-bb
-
-label_bb_1 <- paste("(B)")
-label_bb_2 <- paste("N[CON]")
-label_bb_3 <- paste("y == 0.06 + 0.90 * x ")
-label_bb_4 <- paste("r^2 == 0.55")
-
-bb <- bb + 
-  annotate("text", x = .02, y = 0.85, label = label_bb_1, color="black", size = 7, parse = TRUE) +
-  annotate("text" , x = .16 , y = 0.85 , label = label_bb_2, color="black", size = 7, parse = TRUE) +
-  annotate("text" , x = .65 , y = 0.1 , label = label_bb_3 , color="black", size = 5, parse = TRUE) +
-  annotate("text" , x = .65 , y = 0.07 , label = label_bb_4 , color = "black" , size = 5, parse = TRUE)
-
-bb
-
-
-```
-
-##N Uptake
-
-###Dataframe
-
-```{r}
-
-pvo_data_nup <- data.frame(gpndvi_data_nup$site_year, gpndvi_data_nup$NDVI , nonlinfitted)
-colnames(pvo_data_nup) <- c("Site_Year" , "Observed_NDVI" , "Predicted_NDVI")
-head(pvo_data_nup)
-tail(pvo_data_nup)
-
-pvo_data_nup$Site_Year <- factor(pvo_data_nup$Site_Year, levels = c("Arbuckle-15" , "Farm Survey-15" , "RES-15"  ,  "Davis-16" , "RES-16", "Nicolaus-17" , "Williams-17",  "Arbuckle-18" ,  "Biggs-18", "Marysville-18" , "Nicolaus-18"))
-
-```
-
-###Model
-```{r}
-
-pvo_nup_lm <- lm(Observed_NDVI ~ Predicted_NDVI, data = pvo_data_nup)
-summary(pvo_nup_lm)
-mse.pvo.nup.lm <- mean(residuals(pvo_nup_lm)^2)
-mse.pvo.nup.lm
-rmse.pvo.nup.lm <- sqrt(mse.pvo.nup.lm)
-rmse.pvo.nup.lm
-
-```
-
-###Plot
-```{r}
-
-cc <- ggplot(data = pvo_data_nup , aes(x = Predicted_NDVI , y = Observed_NDVI)) +
-  geom_point(mapping = aes(Predicted_NDVI , Observed_NDVI , shape = Site_Year) , data = pvo_data_nup , size = 2) +
-  geom_smooth(method = "lm" , se = FALSE , linetype = "dashed" , color = "red", lwd = 1) +
-  theme_classic() +
-  expand_limits(x = 0 , y = 0) +
-  coord_cartesian(ylim=c(0,0.85) , xlim=c(0,0.85)) +
-  scale_x_continuous(breaks = c(0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80)) +
-  scale_y_continuous(breaks = c(0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80)) +
-  xlab(expression(paste("Predicted NDVI"))) +
-  ylab(NULL) +
-  labs(shape = "Site Year") +
- theme(axis.title = element_text(size = 15)) +
-  theme(axis.text = element_text(size = 13)) +
-  theme(legend.text = element_text(size = 15)) +
-  theme(legend.title = element_text(size = 15)) +
-  scale_shape_manual(values = seq(0:10)) +
-  theme(panel.background = element_rect(fill = "white", color = "black")) +
-  geom_abline(aes(slope = 1, intercept = 0) , lwd = .5)
-
-label_cc_1 <- paste("(C)")
-label_cc_2 <- paste("N[UP]")
-label_cc_3 <- paste("y == 0.09 + 0.86 * x ")
-label_cc_4 <- paste("r^2 == 0.68")
-
-cc <- cc + 
-  annotate("text", x = .02, y = 0.85, label = label_cc_1, color="black", size = 7, parse = TRUE) +
-  annotate("text" , x = .14 , y = 0.85 , label = label_cc_2, color="black", size = 7, parse = TRUE) +
-  annotate("text" , x = .65 , y = 0.1 , label = label_cc_3 , color="black", size = 5, parse = TRUE) +
-  annotate("text" , x = .65 , y = 0.07 , label = label_cc_4 , color = "black" , size = 5, parse = TRUE)
-
-cc
-
-g_legend <- function(cc){
-  tmp <- ggplot_gtable(ggplot_build(cc))
-  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
-  legend <- tmp$grobs[[leg]]
-  return(legend)}
-legend2 <- g_legend(cc) #extract the legend from plot cc
-
-cc <- cc +
-  theme(legend.position = "none")
-
-cc
-
-```
-
-##Figure 3
-
-```{r fig.width= 15, fig.height=7.5}
-
-z <- grid.arrange(arrangeGrob(aa,
-                              bb, 
-                              cc,
-                              legend2,
-                              ncol = 4,
-                              nrow = 1,
-                              widths = c(1.3,1.2,1.2,.6)))
-
-ggsave("Figure_3.tiff" , z,  device = "tiff" )
-
+ggsave("FIGURES/Figure2.tiff" , zz, compression = "lzw" , type = "cairo")
 ```
 
 #YIELD DATA
@@ -870,7 +497,7 @@ ggsave("Figure_3.tiff" , z,  device = "tiff" )
 
 ```{r}
 
-yield_data <- read_csv("yield_data.csv" )
+yield_data <- read_csv(file = "DATA/yield_data.csv" )
 
 yield_data$exp_plot_number <- factor(yield_data$exp_plot_number)
 yield_data$block <- factor(yield_data$block)
@@ -981,8 +608,9 @@ rmse.seg.mod
 confint.segmented(segmented.mod)
 pscore.test(lin.mod, seg.Z = ~n_uptake, k = 10)
 
-prediction_data <- data.frame(N_Uptake = segmented.mod$psi[2]) #this code predicts the NDVI based on the model using the breakpoint N uptake value
-predict(fm2nup.nlme , newdata = prediction_data , level = 0)
+breakpoint <- segmented.mod$psi[2]
+prediction <- nup_a*(breakpoint^2) + nup_b*breakpoint + nup_c
+prediction
 
 ```
 
@@ -992,7 +620,7 @@ predict(fm2nup.nlme , newdata = prediction_data , level = 0)
 aaa <- ggplot(data = yield_data , aes(x = n_uptake , y = yield )) +
   geom_point(mapping = aes(n_uptake , yield , shape = site_year) , data = yield_data, size = 2) +
   theme_classic() +
-  labs( x = "Total N Uptake ( g N m"^-2~")" , y = "Grain Yield ( kg ha"^-1~")", shape = "Site-Year") +
+  labs( x = "PI Total N Uptake ( g N m"^-2~")" , y = "Final Grain Yield ( kg ha"^-1~")", shape = "Site-Year") +
   theme(axis.title = element_text(size = 15)) +
   theme(axis.text = element_text(size = 13)) +
   theme(legend.text = element_text(size = 11)) +
@@ -1008,7 +636,7 @@ aaa <- ggplot(data = yield_data , aes(x = n_uptake , y = yield )) +
 
 label_aaa_1 <- paste("(A)")
 label_aaa_2 <- paste(" y == 4708 + 806 * x")
-label_aaa_3 <- paste("r^2 == 0.63")
+label_aaa_3 <- paste("R^2 == 0.63")
 label_aaa_4 <- paste("RMSE == 1321")
 
 aaa <- aaa + annotate("text", x = 1.5, y = 15000, label = label_aaa_1, color="black", size = 7, parse = TRUE)
@@ -1018,7 +646,8 @@ aaa <- aaa + annotate("text", x = 20, y = 1200, label = label_aaa_4, color="blac
 
 aaa
 ```
-
+  
+  
 ###Model (Yield ~ NDVI) 
 ```{r}
 
@@ -1049,7 +678,7 @@ fitted_fm1yield <- data.frame(yield_data$ndvi , predicted_fm1yield)
 bbb <- ggplot(data = yield_data , aes(x = ndvi , y = yield )) +
   geom_point(mapping = aes(ndvi , yield , shape = site_year) , data = yield_data, size = 2) +
   theme_classic() +
-  labs( x = "NDVI" , y = NULL, shape = "Site-Year") +
+  labs( x = "PI NDVI" , y = NULL, shape = "Site-Year") +
  theme(axis.title = element_text(size = 15)) +
   theme(axis.text = element_text(size = 13)) +
   theme(legend.text = element_text(size = 15)) +
@@ -1066,7 +695,7 @@ bbb
 
 label_bbb_1 <- paste("(B)")
 label_bbb_2 <- paste(" y == 1514 + 14349 * x")
-label_bbb_3 <- paste("r^2 == 0.58")
+label_bbb_3 <- paste("R^2 == 0.58")
 label_bbb_4 <- paste("RMSE == 1415")
 
 bbb <- bbb + annotate("text", x = .01, y = 15000, label = label_bbb_1, color="black", size = 7, parse = TRUE)
@@ -1095,7 +724,7 @@ bbb
 ```
 
 
-#Figure 4
+#Figure 3
 ```{r fig.width= 15, fig.height= 7.5}
 
 zzz <- grid.arrange(arrangeGrob(aaa,
@@ -1106,7 +735,7 @@ zzz <- grid.arrange(arrangeGrob(aaa,
                          widths = c(3,3,1.5)))
                               
 
-ggsave("Figure_4.tiff" , zzz,  device = "tiff" ) 
+ggsave("FIGURES/Figure3.tiff" , zzz , compression = "lzw" , type = "cairo" ) 
 
 ```
 
